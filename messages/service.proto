@@ -1,0 +1,15 @@
+syntax="proto3";
+
+service MessageService {
+  rpc GetMessage(Empty) returns (Message) {}
+  rpc StreamMessages(Empty) returns (stream Message) {}
+  rpc SendMessages(stream Message) returns (Empty) {}
+  rpc Chat(stream Message) returns (stream Message) {}
+}
+
+message Message {
+  string from = 1;
+  string msg = 2;
+}
+
+message Empty {}
