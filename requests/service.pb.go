@@ -110,17 +110,19 @@ func init() {
 func init() { proto.RegisterFile("requests/service.proto", fileDescriptor_5a5c1b5f21c4aae9) }
 
 var fileDescriptor_5a5c1b5f21c4aae9 = []byte{
-	// 148 bytes of a gzipped FileDescriptorProto
+	// 188 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x12, 0x2b, 0x4a, 0x2d, 0x2c,
 	0x4d, 0x2d, 0x2e, 0x29, 0xd6, 0x2f, 0x4e, 0x2d, 0x2a, 0xcb, 0x4c, 0x4e, 0xd5, 0x2b, 0x28, 0xca,
 	0x2f, 0xc9, 0x57, 0x32, 0xe4, 0x62, 0x0f, 0x82, 0xc8, 0x08, 0x09, 0x71, 0xb1, 0x24, 0xe5, 0xa7,
 	0x54, 0x4a, 0x30, 0x2a, 0x30, 0x6a, 0x70, 0x06, 0x81, 0xd9, 0x20, 0xb1, 0xb4, 0xa2, 0xfc, 0x5c,
-	0x09, 0x26, 0x88, 0x18, 0x88, 0xad, 0xc4, 0xce, 0xc5, 0xea, 0x9a, 0x5b, 0x50, 0x52, 0x69, 0x94,
-	0xc0, 0xc5, 0x07, 0xd5, 0x1b, 0x0c, 0x31, 0x53, 0x48, 0x81, 0x8b, 0xcb, 0x3d, 0xb5, 0x04, 0x66,
-	0x20, 0x9b, 0x1e, 0x58, 0x9d, 0x14, 0x87, 0x1e, 0x54, 0x44, 0x89, 0x41, 0x48, 0x87, 0x4b, 0x04,
-	0xa4, 0x38, 0xb5, 0x28, 0xb8, 0xa4, 0x28, 0x35, 0x31, 0x17, 0x2a, 0x51, 0x8c, 0x4d, 0xad, 0x01,
-	0x63, 0x12, 0x1b, 0xd8, 0x91, 0xc6, 0x80, 0x00, 0x00, 0x00, 0xff, 0xff, 0x54, 0x78, 0x3d, 0xe9,
-	0xbe, 0x00, 0x00, 0x00,
+	0x09, 0x26, 0x88, 0x18, 0x88, 0xad, 0xc4, 0xce, 0xc5, 0xea, 0x9a, 0x5b, 0x50, 0x52, 0x69, 0x74,
+	0x98, 0x91, 0x8b, 0x0f, 0xaa, 0x39, 0x18, 0x62, 0xa8, 0x90, 0x02, 0x17, 0x97, 0x7b, 0x6a, 0x09,
+	0xcc, 0x44, 0x36, 0x3d, 0xb0, 0x42, 0x29, 0x0e, 0x3d, 0xa8, 0x88, 0x12, 0x83, 0x90, 0x0e, 0x97,
+	0x08, 0x48, 0x71, 0x6a, 0x51, 0x70, 0x49, 0x51, 0x6a, 0x62, 0x2e, 0x54, 0xa2, 0x18, 0x9b, 0x5a,
+	0x03, 0x46, 0x21, 0x3d, 0x2e, 0x11, 0xe7, 0x9c, 0xcc, 0xd4, 0xbc, 0x12, 0x34, 0xd5, 0x70, 0x55,
+	0xc8, 0xea, 0x35, 0x18, 0x85, 0x0c, 0xb9, 0x44, 0x9d, 0x32, 0x53, 0x32, 0x8b, 0x52, 0x93, 0x4b,
+	0x32, 0xf3, 0xf3, 0x12, 0x73, 0x08, 0x69, 0x30, 0x60, 0x4c, 0x62, 0x03, 0x07, 0x84, 0x31, 0x20,
+	0x00, 0x00, 0xff, 0xff, 0x86, 0xf5, 0x1e, 0x15, 0x22, 0x01, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -137,6 +139,8 @@ const _ = grpc.SupportPackageIsVersion4
 type RequestServiceClient interface {
 	GetRequest(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Request, error)
 	ServerStreamRequests(ctx context.Context, in *Empty, opts ...grpc.CallOption) (RequestService_ServerStreamRequestsClient, error)
+	ClientStreamRequests(ctx context.Context, opts ...grpc.CallOption) (RequestService_ClientStreamRequestsClient, error)
+	BidirectionalRequests(ctx context.Context, opts ...grpc.CallOption) (RequestService_BidirectionalRequestsClient, error)
 }
 
 type requestServiceClient struct {
@@ -188,10 +192,77 @@ func (x *requestServiceServerStreamRequestsClient) Recv() (*Request, error) {
 	return m, nil
 }
 
+func (c *requestServiceClient) ClientStreamRequests(ctx context.Context, opts ...grpc.CallOption) (RequestService_ClientStreamRequestsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_RequestService_serviceDesc.Streams[1], "/RequestService/ClientStreamRequests", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &requestServiceClientStreamRequestsClient{stream}
+	return x, nil
+}
+
+type RequestService_ClientStreamRequestsClient interface {
+	Send(*Request) error
+	CloseAndRecv() (*Request, error)
+	grpc.ClientStream
+}
+
+type requestServiceClientStreamRequestsClient struct {
+	grpc.ClientStream
+}
+
+func (x *requestServiceClientStreamRequestsClient) Send(m *Request) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *requestServiceClientStreamRequestsClient) CloseAndRecv() (*Request, error) {
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	m := new(Request)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *requestServiceClient) BidirectionalRequests(ctx context.Context, opts ...grpc.CallOption) (RequestService_BidirectionalRequestsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_RequestService_serviceDesc.Streams[2], "/RequestService/BidirectionalRequests", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &requestServiceBidirectionalRequestsClient{stream}
+	return x, nil
+}
+
+type RequestService_BidirectionalRequestsClient interface {
+	Send(*Request) error
+	Recv() (*Request, error)
+	grpc.ClientStream
+}
+
+type requestServiceBidirectionalRequestsClient struct {
+	grpc.ClientStream
+}
+
+func (x *requestServiceBidirectionalRequestsClient) Send(m *Request) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *requestServiceBidirectionalRequestsClient) Recv() (*Request, error) {
+	m := new(Request)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // RequestServiceServer is the server API for RequestService service.
 type RequestServiceServer interface {
 	GetRequest(context.Context, *Empty) (*Request, error)
 	ServerStreamRequests(*Empty, RequestService_ServerStreamRequestsServer) error
+	ClientStreamRequests(RequestService_ClientStreamRequestsServer) error
+	BidirectionalRequests(RequestService_BidirectionalRequestsServer) error
 }
 
 // UnimplementedRequestServiceServer can be embedded to have forward compatible implementations.
@@ -203,6 +274,12 @@ func (*UnimplementedRequestServiceServer) GetRequest(ctx context.Context, req *E
 }
 func (*UnimplementedRequestServiceServer) ServerStreamRequests(req *Empty, srv RequestService_ServerStreamRequestsServer) error {
 	return status.Errorf(codes.Unimplemented, "method ServerStreamRequests not implemented")
+}
+func (*UnimplementedRequestServiceServer) ClientStreamRequests(srv RequestService_ClientStreamRequestsServer) error {
+	return status.Errorf(codes.Unimplemented, "method ClientStreamRequests not implemented")
+}
+func (*UnimplementedRequestServiceServer) BidirectionalRequests(srv RequestService_BidirectionalRequestsServer) error {
+	return status.Errorf(codes.Unimplemented, "method BidirectionalRequests not implemented")
 }
 
 func RegisterRequestServiceServer(s *grpc.Server, srv RequestServiceServer) {
@@ -248,6 +325,58 @@ func (x *requestServiceServerStreamRequestsServer) Send(m *Request) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _RequestService_ClientStreamRequests_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RequestServiceServer).ClientStreamRequests(&requestServiceClientStreamRequestsServer{stream})
+}
+
+type RequestService_ClientStreamRequestsServer interface {
+	SendAndClose(*Request) error
+	Recv() (*Request, error)
+	grpc.ServerStream
+}
+
+type requestServiceClientStreamRequestsServer struct {
+	grpc.ServerStream
+}
+
+func (x *requestServiceClientStreamRequestsServer) SendAndClose(m *Request) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *requestServiceClientStreamRequestsServer) Recv() (*Request, error) {
+	m := new(Request)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func _RequestService_BidirectionalRequests_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RequestServiceServer).BidirectionalRequests(&requestServiceBidirectionalRequestsServer{stream})
+}
+
+type RequestService_BidirectionalRequestsServer interface {
+	Send(*Request) error
+	Recv() (*Request, error)
+	grpc.ServerStream
+}
+
+type requestServiceBidirectionalRequestsServer struct {
+	grpc.ServerStream
+}
+
+func (x *requestServiceBidirectionalRequestsServer) Send(m *Request) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *requestServiceBidirectionalRequestsServer) Recv() (*Request, error) {
+	m := new(Request)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 var _RequestService_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "RequestService",
 	HandlerType: (*RequestServiceServer)(nil),
@@ -262,6 +391,17 @@ var _RequestService_serviceDesc = grpc.ServiceDesc{
 			StreamName:    "ServerStreamRequests",
 			Handler:       _RequestService_ServerStreamRequests_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "ClientStreamRequests",
+			Handler:       _RequestService_ClientStreamRequests_Handler,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "BidirectionalRequests",
+			Handler:       _RequestService_BidirectionalRequests_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "requests/service.proto",

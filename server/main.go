@@ -29,72 +29,100 @@ func (requestService) GetRequest(ctx context.Context, req *pb.Empty) (*pb.Reques
 // ServerStreamRequests streams 100 request objects to the client
 func (requestService) ServerStreamRequests(req *pb.Empty, stream pb.RequestService_ServerStreamRequestsServer) error {
 	for i := 1; i <= 100; i++ {
-		msg := &pb.Request{From: "Streaming Server", Body: fmt.Sprintf("Message %v", i)}
-		stream.SendMsg(msg)
-		time.Sleep(250 * time.Millisecond)
+		select {
+		case <-stream.Context().Done():
+			log.Printf("Connection closed by client\n")
+			return nil
+		default:
+			msg := &pb.Request{From: "Streaming Server", Body: fmt.Sprintf("Message %v", i)}
+			stream.SendMsg(msg)
+			fmt.Printf("Sending %v\n", i)
+			time.Sleep(250 * time.Millisecond)
+		}
 	}
 	return nil
 }
 
-// func (messageService) SendMessages(stream pb.MessageService_SendMessagesServer) error {
-// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-// 	defer cancel()
-// Loop:
-// 	for {
-// 		select {
-// 		case <-ctx.Done():
-// 			break Loop
-// 		case <-stream.Context().Done():
-// 			log.Println("Closed by client")
-// 			break Loop
-// 		default:
-// 			message, err := stream.Recv()
-// 			if err == io.EOF {
-// 				break Loop
-// 			}
-// 			if err != nil {
-// 				log.Println("An error occured recieving messages", err)
-// 				return err
-// 			}
-// 			log.Printf("Recieved message from %v: %v", message.From, message.Msg)
+// ClientStreamRequests listens to messages from a client and then at the end of the messages sends
+// a response to notify of receipt.
+func (requestService) ClientStreamRequests(stream pb.RequestService_ClientStreamRequestsServer) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-// 		}
-// 	}
+	inChan := make(chan pb.Request)
+	go func(ch chan pb.Request) {
+		for {
+			message, err := stream.Recv()
+			if err != nil {
+				cancel()
+				return
+			}
+			ch <- *message
+		}
+	}(inChan)
 
-// 	log.Println("Server no longer cares.")
-// 	return stream.SendAndClose(&pb.Empty{})
-// }
+Loop:
+	for {
+		select {
+		case <-ctx.Done():
+			break Loop
+		case <-stream.Context().Done():
+			log.Println("Closed by client")
+			break Loop
+		case message := <-inChan:
+			log.Println(&message)
+		}
+	}
 
-// func (messageService) Chat(stream pb.MessageService_ChatServer) error {
-// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-// 	defer cancel()
+	log.Println("Final response")
+	return stream.SendAndClose(&pb.Request{From: "Listening Server", Body: "Done"})
+}
 
-// 	inChan := make(chan pb.Message)
+func (requestService) BidirectionalRequests(stream pb.RequestService_BidirectionalRequestsServer) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-// 	go func(input chan pb.Message) {
-// 		for {
-// 			in, err := stream.Recv()
-// 			if err != nil {
-// 				return
-// 			}
-// 			input <- *in
-// 		}
-// 	}(inChan)
+	inChan := make(chan pb.Request)
+	go func(input chan pb.Request) {
+		for {
+			in, err := stream.Recv()
+			if err != nil {
+				cancel()
+				return
+			}
+			input <- *in
+		}
+	}(inChan)
 
-// 	for {
-// 		select {
-// 		case <-ctx.Done():
-// 			fmt.Println("Closed by server")
-// 			return nil
-// 		case <-stream.Context().Done():
-// 			fmt.Println("Closed by client")
-// 			stream.Send(&pb.Message{From: "Server", Msg: "Goodbye ol' friend"})
-// 			return nil
-// 		case msg := <-inChan:
-// 			fmt.Printf("Recieved message %v\n", msg)
-// 		}
-// 	}
-// }
+	outChan := make(chan pb.Request)
+	go func(out chan pb.Request) {
+		for i := 0; i < 100; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				out <- pb.Request{From: "Bidirectional Server", Body: fmt.Sprintf("Message %v", i)}
+				time.Sleep(time.Millisecond * 150)
+			}
+		}
+	}(outChan)
+
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("Closed by server")
+			return nil
+		case <-stream.Context().Done():
+			fmt.Println("Closed by client")
+			return nil
+		case message := <-outChan:
+			stream.Send(&message)
+		case msg := <-inChan:
+			fmt.Println(&msg)
+			stream.Send(&pb.Request{From: "Server", Body: "I got your message!"})
+		}
+	}
+}
 
 func main() {
 	host := flag.String("host", ":8080", "The server host")

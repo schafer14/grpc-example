@@ -34,10 +34,10 @@ message Request {
 message Empty{}
 
 service RequestService {
-    rpc GetRequest(Empty) returns (Request) {}  
-    rpc ServerStreamRequests(Empty) returns (stream Request) {}  
-    rpc ClientStreamRequests(stream Request) returns (Request) {}  
-    rpc BidirectionalRequests(stream Request) returns (stream Request) {}  
+    rpc GetRequest(Empty) returns (Request) {}
+    rpc ServerStreamRequests(Empty) returns (stream Request) {}
+    rpc ClientStreamRequests(stream Request) returns (Request) {}
+    rpc BidirectionalRequests(stream Request) returns (stream Request) {}
 }
 ```
 
@@ -93,10 +93,172 @@ func (requestService) GetRequest(ctx context.Context, req *pb.Empty) (*pb.Reques
 
 If you are not used to working with protobufs this snippet might look strange, but it is not complicated at all. Remember the file that `protoc` generated for us? It defined a new type for each of the messages in our service. All we are doing here is using those types. If you ever wonder what type you need referring to that file can be very helpful.
 
-Since this function has a signature that takes a single empty object and returns a single request object without any streams the function is familiar. 
+Since this function has a signature that takes a single empty object and returns a single request object without any streams the function is familiar.
 
 ### ServerStreamRequests (Server Streaming)
 
-In this type of request the server will stream requests to the client. Either the server or the client can end the connection at any time. 
+In this type of request the server will stream requests to the client. Either the server or the client can end the connection at any time.
 
+```go
+// ServerStreamRequests streams 100 request objects to the client
+func (requestService) ServerStreamRequests(req *pb.Empty, stream pb.RequestService_ServerStreamRequestsServer) error {
+    for i := 1; i <= 100; i++ {
+        select {
+        case <-stream.Context().Done():
+            log.Printf("Connection closed by client\n")
+            return nil
+        default:
+            msg := &pb.Request{From: "Streaming Server", Body: fmt.Sprintf("Message %v", i)}
+            stream.SendMsg(msg)
+            fmt.Printf("Sending %v\n", i)
+            time.Sleep(250 * time.Millisecond)
+        }
+    }
+    return nil
+}
+```
+
+Examining the function signature we immediately notice a difference from the unary request. First, there is no context parameter, but we can still get the context with `stream.Context()`. If you are unfamiliar with context make sure to checkout [this video](https://www.youtube.com/watch?v=LSzR0VEraWw). The second change is that instead of returning the result there is a stream parameter that can be use to send messages to the client.
+
+If our goal is to send 100 messages to the client and we simply use a for loop to send messages the server will continue to try to send messages even if the client has disconnected. Instead after each message we send we want to check if the client is still listening and if so send the message. This ensures are server will no waste valuable resource computing messages that will essentially be piped to `/dev/null`.
+
+### ClientStreamRequests (Client Streaming)
+
+In this function the client will send messages to the server. In our example the server will only listen for a maximum of five seconds. At the end of the listening period the server will send a response back to the client.
+
+```go
+// ClientStreamRequests listens to messages from a client and then at the end of the messages sends
+// a response to notify of receipt.
+func (requestService) ClientStreamRequests(stream pb.RequestService_ClientStreamRequestsServer) error {
+    // Set a maximum of five seconds to listen to the client
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    // cancel context when the function ends regardless of what happens
+    defer cancel()
+
+    // We will need to listen to messages in a separate routine so create a channel
+    // to syncronize the two routines
+    inChan := make(chan pb.Request)
+    // Create a separate routine that just listens for messages from the client
+    go func(ch chan pb.Request) {
+        for {
+            message, err := stream.Recv()
+            if err != nil {
+                // cancel the context so the main loop will know to stop
+                cancel()
+                return
+            }
+            ch <- *message
+        }
+    }(inChan)
+
+Loop:
+    for {
+        select {
+        case <-ctx.Done():
+            break Loop
+        case <-stream.Context().Done():
+            log.Println("Closed by client")
+            break Loop
+        case message := <-inChan:
+            log.Println(&message)
+        }
+    }
+
+    // Close connection
+    log.Println("Final response")
+    return stream.SendAndClose(&pb.Request{From: "Listening Server", Body: "Done"})
+}
+```
+
+This is a little bit more complicated then previous functions because there is a need to do two things at once:
+
+- Listen to messages from the client
+- Listen for cancellations or deadlines from context
+
+In order this we set up a separate go routine to monitor messages from the client. Apart from that complication, the signature and overall mechanics of the function are very similar to the previous example.
+
+### BidirectionalRequests (Bidirectional Streaming)
+
+As you may have guessed bidirectional streaming is just a combination of client streaming and server streaming. The following code may look imposing, but if you understand the previous two functions there is nothing new. We need to create two go routines. One for generating messages and one for receiving messages. This also means the select statement will have an extra branch.
+
+```go
+func (requestService) BidirectionalRequests(stream pb.RequestService_BidirectionalRequestsServer) error {
+    // Set the context for cancellation
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    // Create a channel to read from client
+    inChan := make(chan pb.Request)
+    go func(input chan pb.Request) {
+        for {
+            in, err := stream.Recv()
+            if err != nil {
+                cancel()
+                return
+            }
+            input <- *in
+        }
+    }(inChan)
+
+    // Create a channel to generate messages
+    outChan := make(chan pb.Request)
+    go func(out chan pb.Request) {
+        for i := 0; i < 100; i++ {
+            select {
+            case <-ctx.Done():
+                return
+            default:
+                out <- pb.Request{From: "Bidirectional Server", Body: fmt.Sprintf("Message %v", i)}
+                time.Sleep(time.Millisecond * 150)
+            }
+        }
+    }(outChan)
+
+    // react to whatever is ready to go.
+    for {
+        select {
+        case <-ctx.Done():
+            log.Println("Closed by server")
+            return nil
+        case <-stream.Context().Done():
+            log.Println("Closed by client")
+            return nil
+        case message := <-outChan:
+            stream.Send(&message)
+        case msg := <-inChan:
+            log.Println(&msg)
+            stream.Send(&pb.Request{From: "Server", Body: "I got your message!"})
+        }
+    }
+}
+```
+
+### The main function
+
+With the hard part out of the way we can focus on initiating the gRPC application. This is pretty standard so I will not provide as many annotations.
+
+```go
+func main() {
+    host := flag.String("host", ":8080", "The server host")
+
+    flag.Parse()
+
+    lis, err := net.Listen("tcp", *host)
+
+    if err != nil {
+        log.Fatalf("failed to listen: %v", err)
+    }
+
+    grpcServer := grpc.NewServer()
+
+    pb.RegisterRequestServiceServer(grpcServer, newService())
+
+    log.Printf("Listening on %v\n", *host)
+    log.Fatal(grpcServer.Serve(lis))
+}
+```
+
+---
+
+Hopefully this has been a clear demonstration of how to use gRPC. If you are looking for the source code or a client implementation it can be found on [github](https://github.com/schafer14/grpc-example). In the next post we will give an example of how these techniques could be used in a real application.
 

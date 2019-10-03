@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"time"
@@ -61,10 +62,99 @@ Loop:
 			log.Println("connection closed")
 			break Loop
 		case msg := <-reqCh:
-			log.Println(msg)
+			log.Println(&msg)
 		}
 	}
 	return
+}
+
+func sendMany(client pb.RequestServiceClient) {
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+
+	stream, err := client.ClientStreamRequests(context.Background())
+	if err != nil {
+		log.Fatalf("Failed to get client stream: %v\n", err)
+	}
+
+Loop:
+	for i := 0; i < 100; i++ {
+		select {
+		case <-ctx.Done():
+			break Loop
+		case <-stream.Context().Done():
+			break Loop
+		default:
+			err := stream.Send(&pb.Request{From: "Client", Body: fmt.Sprintf("Message %v", i)})
+			if err != nil {
+				break
+			}
+			time.Sleep(time.Millisecond * 300)
+		}
+	}
+
+	result, err := stream.CloseAndRecv()
+	if err != nil {
+		log.Printf("Could not recieve message from server: %v\n", err)
+	}
+	log.Println(result)
+	return
+}
+
+func bidirectional(client pb.RequestServiceClient) {
+	log.Println("ehere")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.BidirectionalRequests(context.Background())
+	if err != nil {
+		log.Fatalf("Failed to get bidirectional stream: %v\n", err)
+	}
+
+	inChan := make(chan pb.Request)
+	go func(ch chan pb.Request) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				msg, err := stream.Recv()
+				if err != nil {
+					cancel()
+					return
+				}
+				ch <- *msg
+			}
+		}
+	}(inChan)
+
+	outChan := make(chan pb.Request)
+	go func(ch chan pb.Request) {
+	Loop:
+		for i := 0; i < 100; i++ {
+			select {
+			case <-ctx.Done():
+				break Loop
+			default:
+				if err := stream.Send(&pb.Request{From: "Bidirectional Client", Body: fmt.Sprintf("Message %v", i)}); err != nil {
+					log.Fatalf("Could not send message %v\n", err)
+				}
+				time.Sleep(time.Millisecond * 400)
+			}
+		}
+		cancel()
+	}(outChan)
+
+Loop:
+	for {
+		select {
+		case <-ctx.Done():
+			break Loop
+		case msg := <-inChan:
+			log.Println(&msg)
+		default:
+		}
+	}
 }
 
 func main() {
@@ -79,61 +169,8 @@ func main() {
 	defer conn.Close()
 	c := pb.NewRequestServiceClient(conn)
 
-	singleRequest(c)
-	manyRequests(c)
-
-	// // Get all messages
-	// streamCtx, streamCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	// defer streamCancel()
-	// stream, err := c.StreamMessages(streamCtx, &pb.Empty{})
-	// if err != nil {
-	// 	log.Fatalf("%v.StreamMessages(_) = _, %v", c, err)
-	// }
-
-	// for {
-	// 	msg, err := stream.Recv()
-	// 	if err == io.EOF {
-	// 		break
-	// 	}
-	// 	if err != nil {
-	// 		log.Printf("%v.StreamMessages(_) = _, %v", c, err)
-	// 		break
-	// 	}
-	// 	log.Println(msg)
-	// }
-
-	// // Send messages
-	// // Create a random number of random points
-	// sendCtx, sendCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	// defer sendCancel()
-	// msgStream, err := c.SendMessages(sendCtx)
-	// if err != nil {
-	// 	log.Fatalf("%v.RecordRoute(_) = _, %v", c, err)
-	// }
-	// for i := 0; i < 5; i++ {
-	// 	if err := msgStream.Send(&pb.Message{From: "Client", Msg: fmt.Sprintf("Message number %v", i)}); err != nil {
-	// 		log.Fatalf("%v.Send() = %v", stream, err)
-	// 	}
-	// 	time.Sleep(time.Second)
-	// }
-	// _, err = msgStream.CloseAndRecv()
-	// if err != nil {
-	// 	log.Fatalf("%v.CloseAndRecv() got error %v, want %v", stream, err, nil)
-	// }
-	// log.Printf("Recieved closure from server")
-
-	// // Chat
-	// chatCtx, chatCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	// defer chatCancel()
-	// chatStream, err := c.Chat(chatCtx)
-	// if err != nil {
-	// 	log.Fatalf("%v.Chat(_) = _, %v", c, err)
-	// }
-	// for i := 0; i < 5; i++ {
-	// 	if err := chatStream.Send(&pb.Message{From: "Client", Msg: fmt.Sprintf("Chat message number %v", i)}); err != nil {
-	// 		log.Fatalf("%v.Send() = %v", stream, err)
-	// 	}
-	// 	time.Sleep(time.Second)
-	// }
-	// chatCancel()
+	// singleRequest(c)
+	// manyRequests(c)
+	// sendMany(c)
+	bidirectional(c)
 }

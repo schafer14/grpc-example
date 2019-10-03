@@ -10,6 +10,6 @@ message Empty{}
 service RequestService {
   rpc GetRequest(Empty) returns (Request) {}  
   rpc ServerStreamRequests(Empty) returns (stream Request) {}  
-  // rpc ClientStreamRequests(stream Request) returns (Request) {}  
-  // rpc BidirectionalRequests(stream Request) returns (stream Request) {}  
+  rpc ClientStreamRequests(stream Request) returns (Request) {}  
+  rpc BidirectionalRequests(stream Request) returns (stream Request) {}  
 }
